@@ -229,15 +229,23 @@ class Codebase:
 
     @staticmethod
     def importModulesByName(modules_by_name):
-        """ Returns a dict mapping module names (str) to modules. """
+        """ Returns a dict mapping module names (str) to modules.
+
+        The dict will be ordered by module import order.
+        """
         modules = {}
-        for mname in modules_by_name:
+        for mname in sorted(modules_by_name):
             try:
                 modules[mname] = importlib.import_module(mname)
             except Exception as e:
                 logging.getLogger(__name__).warn(
                     "Error importing module '%s' from codebase: %s", mname, e)
-        return modules
+
+        sysModulePositions = {}
+        for m in sys.modules:
+            sysModulePositions[m] = len(sysModulePositions)
+
+        return {m: modules[m] for m in sorted(modules, key=lambda mname: sysModulePositions.get(mname,10**12))}
 
     @staticmethod
     def removeUserModules(paths):

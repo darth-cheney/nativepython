@@ -97,18 +97,29 @@ class SerializationContext(object):
     def FromModules(modules):
         """Given a list of modules, produce a serialization context by walking the objects."""
         nameToObject = {}
+        objectsSeen = set()
+
+        def addObject(name, object):
+            """Add a module-level object to the serializer.
+
+            We only add an object once, and rely on the fact that we're iterating
+            over the module list in import order to give us a stable ordering.
+            """
+            if id(object) not in objectsSeen:
+                nameToObject[name] = object
+                objectsSeen.add(id(object))
 
         for module in modules:
             modulename = module.__name__
 
             for membername, member in module.__dict__.items():
                 if isinstance(member, (type, FunctionType, ConcreteTypeFunction)):
-                    nameToObject[modulename + "." + membername] = member
+                    addObject(modulename + "." + membername, member)
                 elif isinstance(member, ModuleType):
-                    nameToObject[".modules." + member.__name__] = member
+                    addObject(".modules." + member.__name__, member)
 
             # also add the module itself so we can serialize it
-            nameToObject[".modules." + modulename] = module
+            addObject(".modules." + modulename, module)
 
         for module in modules:
             modulename = module.__name__
@@ -118,16 +129,21 @@ class SerializationContext(object):
                     for sub_name, sub_obj in member.__dict__.items():
                         if not (sub_name[:2] == "__" and sub_name[-2:] == "__"):
                             if isinstance(sub_obj, (type, FunctionType, ConcreteTypeFunction)):
-                                nameToObject[modulename + "." + membername + "." + sub_name] = sub_obj
+                                addObject(modulename + "." + membername + "." + sub_name, sub_obj)
                             elif isinstance(sub_obj, ModuleType):
-                                nameToObject[".modules." + sub_obj.__name__] = sub_obj
+                                addObject(".modules." + sub_obj.__name__, sub_obj)
 
         return SerializationContext(nameToObject)
 
     def union(self, other):
-        nameToObject = dict(self.nameToObject)
-        nameToObject.update(other.nameToObject)
-        return SerializationContext(nameToObject)
+        """Take the union of two SerializationContexts, keeping values in 'self' in case of conflict."""
+        result = dict(self.nameToObject)
+
+        for name, obj in other.nameToObject.items():
+            if obj not in self.objToName:
+                result[name] = obj
+
+        return SerializationContext(result)
 
     def withPrefix(self, prefix):
         return SerializationContext({prefix + "." + k: v for k, v in self.nameToObject.items()})
